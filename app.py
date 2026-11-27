@@ -280,7 +280,20 @@ def queries():
 def experiments():
     st.header('Performance Experiments')
     st.caption('Historical measurements from the report, with live SQL demonstrations using the configured cloud database.')
+    st.markdown("""
+    **E.1 Indexing**
 
+    Evaluates how different composite index designs affect access to the ratings table and the execution time of a query identifying the highest-rated movies.
+
+    **E.2 Sorting and Join**
+
+    Compares full sorting, Top-N sorting, and early aggregation to examine how reducing intermediate results affects query processing.
+
+    **E.3 Index-Provided Ordering**
+
+    Compares explicit sorting with index-provided ordering to examine how a composite index on `(rating, movieId)` can eliminate a separate sorting operation.
+    """)
+    
     a, b, c, d, e, f = st.tabs([
         'Indexing',
         'E.1 Live Query',
