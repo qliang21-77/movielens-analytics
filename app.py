@@ -140,17 +140,23 @@ def database_page():
     tables = ['movies', 'users', 'ratings', 'genres', 'tags', 'links', 'movie_genres']
     a,b,c,d = st.tabs(['Schema Design', 'Load Dataset', 'Representative Data', 'Database Size'])
     with a:
-        st.subheader('Implemented Relational Schema')
-        st.markdown("""| Parent table | Related table | Relationship |
-|---|---|---|
-| users | ratings | One-to-many |
-| movies | ratings | One-to-many |
-| users | tags | One-to-many |
-| movies | tags | One-to-many |
-| movies | links | One-to-one |
-| movies | movie_genres | One-to-many |
-| genres | movie_genres | One-to-many |""")
-        st.caption('Conceptual relationships; movie_genres resolves the many-to-many movie–genre relationship.')
+        st.subheader('Relational Schema and Entity Relationships')
+        st.markdown("""| Entity / Table | Related Table | Relationship | Description |
+|---|---|---|---|
+| users | ratings | One-to-many | One user can rate multiple movies, while each rating belongs to one user |
+| users | tags | One-to-many | One user can create multiple tags, while each tag record belongs to one user |
+| users | movies | Many-to-many | One user can rate multiple movies, and one movie can be rated by multiple users |
+| movies | ratings | One-to-many | One movie can receive multiple ratings, while each rating belongs to one movie|
+| movies | tags | One-to-many | One movie can have multiple tags, while each tag record belongs to one movie|
+| movies | links | One-to-one | One movie only has one link, and each link record belongs to one movie|
+| movies | genres | Many-to-many (via movie_genres) | One movie can belong to multiple genres, and one genre can be associated with multiple movies. The movie_genres junction table connects the two tables through movieId and genreId|
+| movies | movie_genres | One-to-many | One movie can belong to many movie genres, and each record references one movie |
+| genres | movie_genres | One-to-many | One genre can be associated with multiple movies through the movie_genres table, while each movie-genre record references one genre|
+""")
+        st.caption( 'The ratings and tags tables represent many-to-many '
+    'relationships between users and movies, while '
+    'movie_genres resolves the many-to-many relationship '
+    'between movies and genres.')
         table = st.selectbox('Inspect table structure', tables)
         ddl = run(f'SHOW CREATE TABLE `{table}`')
         st.code(str(ddl.iloc[0,1]), language='sql')
