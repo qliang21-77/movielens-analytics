@@ -9,7 +9,7 @@ st.set_page_config(page_title='MovieLens Analytics', layout='wide')
 st.title('MovieLens Analytics')
 st.caption('DSCI 551 | Movie Rating and Database Performance Analysis')
 with st.sidebar:
-    page = st.radio('Navigation', ['Data Overview','Database','Query Workload','Performance Experiments'])
+    page = st.radio('Navigation', ['Database','Data Overview','Query Workload','Performance Experiments'])
     st.caption('Cloud database · MovieLens')
 
 try:
