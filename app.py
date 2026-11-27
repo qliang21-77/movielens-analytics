@@ -276,49 +276,199 @@ def queries():
     if st.button('Run Query',type='primary'):
         show(sql,params,chart)
 
+
 def experiments():
     st.header('Performance Experiments')
-    st.caption('Historical measurements from the report; single runs, not live benchmarks.')
-    a,b,c,d=st.tabs(['Indexing','Sorting and Join','Live Query Lab','Index-Provided Ordering'])
+    st.caption('Historical measurements from the report, with live SQL demonstrations using the configured cloud database.')
+
+    a, b, c, d, e, f = st.tabs([
+        'Indexing',
+        'E.1 Live Query',
+        'Sorting and Join',
+        'E.2 Live Query Lab',
+        'Index-Provided Ordering',
+        'E.3 Live Query'
+    ])
+
     with a:
-        df=pd.DataFrame({'Index configuration':['movieId','movieId, rating','rating, movieId'],'Execution time (ms)':[214,112,195]})
-        st.dataframe(df,hide_index=True); st.bar_chart(df,x='Index configuration',y='Execution time (ms)'); st.metric('Observed reduction', '47.66%')
-        st.caption('The composite index was used as a covering lookup; the reversed index was not selected in the recorded plan.')
-    with b:
-        df=pd.DataFrame({'Strategy':['Full sort','Top-N','Early aggregation CTE'],'Execution time (ms)':[193,191,96.9],'Join output':[100836,100836,10],'Main sort record bytes':[1080,1080,37],'Main sort peak bytes':[85712,85712,36560],'Disk spills':[0,0,0]})
-        st.dataframe(df,hide_index=True); st.bar_chart(df,x='Strategy',y='Execution time (ms)'); st.metric('Observed reduction vs Top-N','49.27%')
-    with c:
-        schema=database
-        st.caption('Live experiments use the cloud database and its current indexes. Timings are not directly comparable with historical local measurements.')
-        strategy=st.radio('Query strategy',['Full sorting','Top-N','Early aggregation CTE'])
-        minimum=st.number_input('Minimum rating count',1,100000,50,key='lab_min'); n=st.slider('Top N',1,100,10,key='lab_n')
-        sql=CTE if strategy=='Early aggregation CTE' else TOP+(' LIMIT %s' if strategy=='Top-N' else '')
-        params=(minimum,) if strategy=='Full sorting' else (minimum,n)
-        st.code('EXPLAIN ANALYZE\n'+sql,language='sql')
-        if st.button('Run live experiment'):
-            st.subheader('Current ratings indexes')
-            st.dataframe(run('SHOW INDEX FROM ratings',schema=schema),hide_index=True)
-            start=time.perf_counter(); df=run('EXPLAIN ANALYZE '+sql,params,schema); elapsed=(time.perf_counter()-start)*1000
-            plan='\n'.join(str(x) for x in df.iloc[:,0]); st.code(plan,language='text')
-            match=re.search(r'actual time=[\d.]+\.\.([\d.]+)',plan)
-            if match: st.metric('Root iterator completion time',match.group(1)+' ms')
-            st.caption(f'Client elapsed time including connection and retrieval: {elapsed:.1f} ms. No indexes are created or dropped by this app.')
-    with d:
-        st.subheader('Explicit Sorting vs. Index-Provided Ordering')
-        df=pd.DataFrame({
-            'Experiment':['Without composite index','With composite index'],
-            'Additional index':['None','(rating, movieId)'],
-            'Ratings access':['Full table scan','Covering index range scan'],
-            'Sorting operation':['Explicit Sort','No separate Sort'],
-            'Rows read from ratings':[100836,20],
-            'Rows satisfying filter':['21,762','Not fully evaluated'],
-            'Output rows':[20,20],
-            'Execution time (ms)':[62.4,2.75]
+        st.subheader('E.1 Indexing Experiment')
+        df = pd.DataFrame({
+            'Index configuration': [
+                'movieId',
+                'movieId, rating',
+                'rating, movieId'
+            ],
+            'Execution time (ms)': [214, 112, 195]
         })
-        st.dataframe(df,hide_index=True,use_container_width=True)
-        st.bar_chart(df,x='Experiment',y='Execution time (ms)')
-        st.metric('Observed execution time reduction','95.59%')
-        st.metric('Speedup','22.69x')
+        st.dataframe(df, hide_index=True)
+        st.bar_chart(df, x='Index configuration', y='Execution time (ms)')
+        st.metric('Observed reduction', '47.66%')
+        st.caption(
+            'The composite index (movieId, rating) changed the ratings '
+            'access from a regular index lookup to a covering index lookup. '
+            'The reversed index was less effective because the query joins '
+            'on movieId rather than filtering on rating.'
+        )
+
+    with b:
+        st.subheader('E.1 Live Query: Indexing')
+        st.write(
+            'This query examines the current execution plan for the Top 10 '
+            'highest-rated movies. The live plan uses the indexes currently '
+            'configured in the cloud database. It does not recreate the '
+            'three historical index configurations.'
+        )
+
+        e1_sql = TOP + ' LIMIT 10'
+        e1_params = (50,)
+
+        st.markdown('**SQL Query**')
+        st.code(e1_sql, language='sql')
+
+        if st.button('Run E.1 Live Query', key='run_e1'):
+            st.subheader('Current ratings indexes')
+            indexes = run('SHOW INDEX FROM ratings', schema=database)
+            st.dataframe(indexes, hide_index=True, use_container_width=True)
+
+            st.subheader('Execution Plan')
+            plan = run(
+                'EXPLAIN ANALYZE ' + e1_sql,
+                e1_params,
+                schema=database
+            )
+            plan_text = '\n'.join(str(x) for x in plan.iloc[:, 0])
+            st.code(plan_text, language='text')
+
+            match = re.search(
+                r'actual time=[\d.]+\.\.([\d.]+)',
+                plan_text
+            )
+            if match:
+                st.metric(
+                    'Root iterator completion time',
+                    match.group(1) + ' ms'
+                )
+
+            st.subheader('Query Results')
+            results = run(e1_sql, e1_params, schema=database)
+            st.dataframe(
+                results,
+                hide_index=True,
+                use_container_width=True
+            )
+
+    with c:
+        st.subheader('E.2 Sorting and Join Experiment')
+        df = pd.DataFrame({
+            'Strategy': [
+                'Full sort',
+                'Top-N',
+                'Early aggregation CTE'
+            ],
+            'Execution time (ms)': [193, 191, 96.9],
+            'Join output': [100836, 100836, 10],
+            'Main sort record bytes': [1080, 1080, 37],
+            'Main sort peak bytes': [85712, 85712, 36560],
+            'Disk spills': [0, 0, 0]
+        })
+        st.dataframe(df, hide_index=True)
+        st.bar_chart(df, x='Strategy', y='Execution time (ms)')
+        st.metric('Observed reduction vs Top-N', '49.27%')
+
+    with d:
+        st.subheader('E.2 Live Query Lab')
+        st.caption(
+            'Live experiments use the cloud database and its current indexes. '
+            'Timings are not directly comparable with historical local measurements.'
+        )
+
+        strategy = st.radio(
+            'Query strategy',
+            ['Full sorting', 'Top-N', 'Early aggregation CTE'],
+            key='e2_strategy'
+        )
+        minimum = st.number_input(
+            'Minimum rating count',
+            1, 100000, 50,
+            key='lab_min'
+        )
+        n = st.slider('Top N', 1, 100, 10, key='lab_n')
+
+        sql = CTE if strategy == 'Early aggregation CTE' else TOP + (
+            ' LIMIT %s' if strategy == 'Top-N' else ''
+        )
+        params = (minimum,) if strategy == 'Full sorting' else (minimum, n)
+
+        st.code('EXPLAIN ANALYZE\n' + sql, language='sql')
+
+        if st.button('Run E.2 Live Experiment', key='run_e2'):
+            st.subheader('Current ratings indexes')
+            st.dataframe(
+                run('SHOW INDEX FROM ratings', schema=database),
+                hide_index=True
+            )
+
+            start = time.perf_counter()
+            df = run(
+                'EXPLAIN ANALYZE ' + sql,
+                params,
+                schema=database
+            )
+            elapsed = (time.perf_counter() - start) * 1000
+
+            plan = '\n'.join(str(x) for x in df.iloc[:, 0])
+            st.subheader('Execution Plan')
+            st.code(plan, language='text')
+
+            match = re.search(
+                r'actual time=[\d.]+\.\.([\d.]+)',
+                plan
+            )
+            if match:
+                st.metric(
+                    'Root iterator completion time',
+                    match.group(1) + ' ms'
+                )
+
+            st.caption(
+                f'Client elapsed time including connection and retrieval: '
+                f'{elapsed:.1f} ms. No indexes are created or dropped.'
+            )
+
+    with e:
+        st.subheader('E.3 Explicit Sorting vs. Index-Provided Ordering')
+
+        df = pd.DataFrame({
+            'Experiment': [
+                'Without composite index',
+                'With composite index'
+            ],
+            'Additional index': [
+                'None',
+                '(rating, movieId)'
+            ],
+            'Ratings access': [
+                'Full table scan',
+                'Covering index range scan'
+            ],
+            'Sorting operation': [
+                'Explicit Sort',
+                'No separate Sort'
+            ],
+            'Rows read from ratings': [100836, 20],
+            'Rows satisfying filter': [
+                '21,762',
+                'Not fully evaluated'
+            ],
+            'Output rows': [20, 20],
+            'Execution time (ms)': [62.4, 2.75]
+        })
+
+        st.dataframe(df, hide_index=True, use_container_width=True)
+        st.bar_chart(df, x='Experiment', y='Execution time (ms)')
+        st.metric('Observed execution time reduction', '95.59%')
+        st.metric('Speedup', '22.69x')
+
         st.markdown(
             'The composite index on `(rating, movieId)` allows MySQL '
             'to retrieve records in the requested descending order without '
@@ -327,11 +477,120 @@ def experiments():
             'The optimizer trace for the first experiment also showed '
             '`std::stable_sort` and three initial sorting chunks spilled to disk.'
         )
+
         st.caption(
             'The indexed experiment stopped after retrieving 20 qualifying '
             'records because of LIMIT 20, so the total number of records '
             'satisfying the filter was not fully evaluated.'
         )
+
+    with f:
+        st.subheader('E.3 Live Query: Index-Provided Ordering')
+        st.write(
+            'This experiment compares explicit sorting with index-provided '
+            'ordering, using the indexes already present in the cloud database. '
+            'No indexes are created or dropped.'
+        )
+
+        index_df = run('SHOW INDEX FROM ratings', schema=database)
+        index_names = set(index_df['Key_name'].astype(str))
+
+        st.markdown('**Current ratings indexes**')
+        st.dataframe(
+            index_df,
+            hide_index=True,
+            use_container_width=True
+        )
+
+        existing_composite_indexes = [
+            name for name in [
+                'idx_ratings_movie_rating',
+                'idx_ratings_rating_movie'
+            ]
+            if name in index_names
+        ]
+
+        ignore_hint = ''
+        if existing_composite_indexes:
+            ignore_hint = (
+                ' IGNORE INDEX ('
+                + ', '.join(existing_composite_indexes)
+                + ')'
+            )
+
+        e3_sort_sql = f'''SELECT
+    r.movieId,
+    m.title,
+    r.rating
+FROM ratings r{ignore_hint}
+JOIN movies m ON r.movieId = m.movieId
+WHERE r.rating >= %s
+ORDER BY r.rating DESC, r.movieId DESC
+LIMIT 20'''
+
+        e3_index_sql = '''SELECT
+    r.movieId,
+    m.title,
+    r.rating
+FROM ratings r FORCE INDEX (idx_ratings_rating_movie)
+JOIN movies m ON r.movieId = m.movieId
+WHERE r.rating >= %s
+ORDER BY r.rating DESC, r.movieId DESC
+LIMIT 20'''
+
+        st.markdown('**Experiment 1: Explicit Sorting**')
+        st.code('EXPLAIN ANALYZE\n' + e3_sort_sql, language='sql')
+
+        if st.button('Run E.3 Explicit Sorting', key='run_e3_sort'):
+            plan = run(
+                'EXPLAIN ANALYZE ' + e3_sort_sql,
+                (4.5,),
+                schema=database
+            )
+            plan_text = '\n'.join(str(x) for x in plan.iloc[:, 0])
+            st.subheader('Execution Plan: Explicit Sorting')
+            st.code(plan_text, language='text')
+
+            st.subheader('Query Results')
+            results = run(e3_sort_sql, (4.5,), schema=database)
+            st.dataframe(
+                results,
+                hide_index=True,
+                use_container_width=True
+            )
+
+        st.divider()
+        st.markdown('**Experiment 2: Index-Provided Ordering**')
+        st.code('EXPLAIN ANALYZE\n' + e3_index_sql, language='sql')
+
+        if 'idx_ratings_rating_movie' not in index_names:
+            st.warning(
+                'The index idx_ratings_rating_movie is not currently '
+                'present in the cloud database. This query cannot be '
+                'executed until that index is available. No index will '
+                'be created automatically.'
+            )
+        elif st.button(
+            'Run E.3 Index-Provided Ordering',
+            key='run_e3_index'
+        ):
+            plan = run(
+                'EXPLAIN ANALYZE ' + e3_index_sql,
+                (4.5,),
+                schema=database
+            )
+            plan_text = '\n'.join(str(x) for x in plan.iloc[:, 0])
+            st.subheader('Execution Plan: Index-Provided Ordering')
+            st.code(plan_text, language='text')
+
+            st.subheader('Query Results')
+            results = run(e3_index_sql, (4.5,), schema=database)
+            st.dataframe(
+                results,
+                hide_index=True,
+                use_container_width=True
+            )
+
 try:
     if page=='Data Overview': overview()
     elif page=='Database': database_page()
