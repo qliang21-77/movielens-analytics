@@ -93,10 +93,10 @@ def overview():
     df=run('SELECT '+','.join(f'(SELECT COUNT(*) FROM {t}) AS {t}' for t in tables))
     for cols, names in [(st.columns(4),tables[:4]),(st.columns(3),tables[4:])]:
         for col,t in zip(cols,names): col.metric(t.replace('_',' ').title(),f'{df.iloc[0][t]:,}')
-    st.subheader('Estimated Database Size (MiB)')
-    show('''SELECT ROUND(SUM(data_length)/1048576,2) AS data_mib,
-ROUND(SUM(index_length)/1048576,2) AS index_mib,
-ROUND(SUM(data_length+index_length)/1048576,2) AS total_mib
+    st.subheader('Estimated Database Size (MB)')
+    show('''SELECT ROUND(SUM(data_length)/1048576,2) AS data_MB,
+ROUND(SUM(index_length)/1048576,2) AS index_MB,
+ROUND(SUM(data_length+index_length)/1048576,2) AS total_MB
 FROM information_schema.tables WHERE table_schema=DATABASE()''')
     st.subheader('Rating Summary')
     show('SELECT COUNT(*) AS total_ratings,MIN(rating) AS min_rating,MAX(rating) AS max_rating,ROUND(AVG(rating),2) AS avg_rating,ROUND(STDDEV_POP(rating),2) AS std_rating FROM ratings')
@@ -209,16 +209,16 @@ FROM movies m JOIN (
     with d:
         st.subheader('Live Row Counts')
         show(' UNION ALL '.join(f"SELECT '{t}' AS table_name, COUNT(*) AS row_count FROM `{t}`" for t in tables))
-        st.subheader('Estimated Storage by Table (MiB)')
-        show("""SELECT table_name, ROUND(data_length/1048576,2) AS data_mib,
-        ROUND(index_length/1048576,2) AS index_mib,
-        ROUND((data_length+index_length)/1048576,2) AS total_mib
+        st.subheader('Estimated Storage by Table (MB)')
+        show("""SELECT table_name, ROUND(data_length/1048576,2) AS data_MB,
+        ROUND(index_length/1048576,2) AS index_MB,
+        ROUND((data_length+index_length)/1048576,2) AS total_MB
         FROM information_schema.tables WHERE table_schema=DATABASE()
-        AND table_type='BASE TABLE' ORDER BY total_mib DESC""")
-        st.subheader('Total Estimated Database Size (MiB)')
-        show("""SELECT ROUND(SUM(data_length)/1048576,2) AS data_mib,
-        ROUND(SUM(index_length)/1048576,2) AS index_mib,
-        ROUND(SUM(data_length+index_length)/1048576,2) AS total_mib
+        AND table_type='BASE TABLE' ORDER BY total_MB DESC""")
+        st.subheader('Total Estimated Database Size (MB)')
+        show("""SELECT ROUND(SUM(data_length)/1048576,2) AS data_MB,
+        ROUND(SUM(index_length)/1048576,2) AS index_MB,
+        ROUND(SUM(data_length+index_length)/1048576,2) AS total_MB
         FROM information_schema.tables WHERE table_schema=DATABASE()
         AND table_type='BASE TABLE'""")
         st.caption('InnoDB storage estimates include allocated data and index pages; exact row counts are queried separately.')
