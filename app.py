@@ -145,9 +145,7 @@ def database_page():
 |---|---|---|---|
 | users | ratings | One-to-many | One user can rate multiple movies, while each rating belongs to one user |
 | users | tags | One-to-many | One user can create multiple tags, while each tag record belongs to one user |
-| users | movies | Many-to-many | One user can rate multiple movies 
-One movie can have ratings from multiple users 
-One user can only rate one movie at most once. The ratings table connects the two entities, where each user could at most once rate a particular movie|
+| users | movies | Many-to-many | One user can rate multiple movies One movie can have ratings from multiple users One user can only rate one movie at most once. The ratings table connects the two entities, where each user could at most once rate a particular movie |
 | movies | ratings | One-to-many | One movie can receive multiple ratings, while each rating belongs to one movie|
 | movies | tags | One-to-many | One movie can have multiple tags, while each tag record belongs to one movie|
 | movies | links | One-to-one | One movie only has one link, and each link record belongs to one movie|
