@@ -147,7 +147,7 @@ def database_page():
 | movies | ratings | One-to-many |
 | users | tags | One-to-many |
 | movies | tags | One-to-many |
-| movies | links | One-to-zero-or-one |
+| movies | links | One-to-one |
 | movies | movie_genres | One-to-many |
 | genres | movie_genres | One-to-many |""")
         st.caption('Conceptual relationships; movie_genres resolves the many-to-many movie–genre relationship.')
