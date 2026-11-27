@@ -9,7 +9,7 @@ st.set_page_config(page_title='MovieLens Analytics', layout='wide')
 st.title('MovieLens Analytics')
 st.caption('DSCI 551 | Movie Rating and Database Performance Analysis')
 with st.sidebar:
-    page = st.radio('Navigation', ['Data Overview','Query Workload','Performance Experiments'])
+    page = st.radio('Navigation', ['Data Overview','Database','Query Workload','Performance Experiments'])
     st.caption('Cloud database · MovieLens')
 
 try:
@@ -134,6 +134,89 @@ FROM information_schema.tables WHERE table_schema=DATABASE()''')
 
     st.altair_chart(chart, use_container_width=True)
 
+def database_page():
+    st.header('B. Database')
+    st.caption('Implemented schema, loading pipeline, relationships and live representative data.')
+    tables = ['movies', 'users', 'ratings', 'genres', 'tags', 'links', 'movie_genres']
+    a,b,c,d = st.tabs(['Schema Design', 'Load Dataset', 'Representative Data', 'Database Size'])
+    with a:
+        st.subheader('Implemented Relational Schema')
+        st.markdown("""| Parent table | Related table | Relationship |
+|---|---|---|
+| users | ratings | One-to-many |
+| movies | ratings | One-to-many |
+| users | tags | One-to-many |
+| movies | tags | One-to-many |
+| movies | links | One-to-zero-or-one |
+| movies | movie_genres | One-to-many |
+| genres | movie_genres | One-to-many |""")
+        st.caption('Conceptual relationships; movie_genres resolves the many-to-many movie–genre relationship.')
+        table = st.selectbox('Inspect table structure', tables)
+        ddl = run(f'SHOW CREATE TABLE `{table}`')
+        st.code(str(ddl.iloc[0,1]), language='sql')
+        st.subheader('Live Key Constraints')
+        show("""SELECT table_name, constraint_name, column_name,
+        referenced_table_name, referenced_column_name
+        FROM information_schema.key_column_usage
+        WHERE table_schema=DATABASE()
+        ORDER BY table_name,constraint_name,ordinal_position""")
+    with b:
+        st.subheader('Create Database and Load Dataset')
+        st.caption('Reproduction examples for local MySQL. These statements are displayed only, never executed by this app. The deployed schema is configured separately.')
+        st.code('CREATE DATABASE IF NOT EXISTS project_551;\nUSE project_551;', language='sql')
+        st.markdown('**1. Import the four original MovieLens CSV files**')
+        fields = {'movies':'movieId, title, genres', 'ratings':'userId, movieId, rating, timestamp', 'tags':'userId, movieId, tag, timestamp', 'links':'movieId, imdbId, tmdbId'}
+        st.caption('Create the tables first using the schema shown in Schema Design. For a fresh load, stage ratings and tags or populate users before importing dependent rows so foreign keys remain valid.')
+        for name, columns in fields.items():
+            with st.expander(name + '.csv'):
+                st.code(f"""LOAD DATA LOCAL INFILE 'PATH_TO_ML_LATEST_SMALL/{name}.csv'
+INTO TABLE {name}
+CHARACTER SET utf8mb4
+FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY '"'
+LINES TERMINATED BY '\\n'
+IGNORE 1 LINES
+({columns});""", language='sql')
+        st.markdown('**2. Derive unique users from ratings and tags**')
+        st.caption('For a fresh import with foreign keys enabled, use staging tables as the source of this UNION before loading ratings and tags. The following illustrates the transformation in the project documentation.')
+        st.code('INSERT INTO users (userId)\nSELECT userId FROM ratings\nUNION\nSELECT userId FROM tags;', language='sql')
+        st.markdown('**3. Normalize movie genres**')
+        st.write('Split pipe-separated genre names, remove duplicates, exclude (no genres listed), and populate the movie-to-genre bridge table.')
+        split = """SELECT m.movieId, TRIM(REPLACE(SUBSTRING_INDEX(
+    SUBSTRING_INDEX(m.genres, '|', n.n), '|', -1), CHAR(13), '')) AS genre
+FROM movies m JOIN (
+    SELECT 1 AS n UNION SELECT 2 UNION SELECT 3 UNION SELECT 4
+    UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8
+    UNION SELECT 9 UNION SELECT 10
+) n ON CHAR_LENGTH(m.genres)-CHAR_LENGTH(REPLACE(m.genres,'|','')) >= n.n-1"""
+        st.code('INSERT INTO genres (genreName)\nSELECT DISTINCT genre FROM (\n'+split+"\n) x WHERE genre <> '(no genres listed)';", language='sql')
+        st.code('INSERT INTO movie_genres (movieId, genreId)\nSELECT DISTINCT x.movieId, g.genreId FROM (\n'+split+'\n) x JOIN genres g ON x.genre=g.genreName;', language='sql')
+        st.markdown('**4. Cloud deployment**')
+        st.write('Export local MySQL structure and data, import the SQL dump into cloud MySQL, and connect Streamlit using server-side secrets.')
+    with c:
+        st.subheader('Live Representative Data')
+        sample = st.selectbox('Select a table', tables)
+        limit = st.slider('Sample rows', 5, 50, 10, key='db_sample_limit')
+        sql = f'SELECT * FROM `{sample}` LIMIT %s'
+        st.code(sql, language='sql')
+        st.dataframe(run(sql,(limit,)), hide_index=True, use_container_width=True)
+        st.caption('Representative sample, not a random or ordered sample.')
+    with d:
+        st.subheader('Live Row Counts')
+        show(' UNION ALL '.join(f"SELECT '{t}' AS table_name, COUNT(*) AS row_count FROM `{t}`" for t in tables))
+        st.subheader('Estimated Storage by Table (MiB)')
+        show("""SELECT table_name, ROUND(data_length/1048576,2) AS data_mib,
+        ROUND(index_length/1048576,2) AS index_mib,
+        ROUND((data_length+index_length)/1048576,2) AS total_mib
+        FROM information_schema.tables WHERE table_schema=DATABASE()
+        AND table_type='BASE TABLE' ORDER BY total_mib DESC""")
+        st.subheader('Total Estimated Database Size (MiB)')
+        show("""SELECT ROUND(SUM(data_length)/1048576,2) AS data_mib,
+        ROUND(SUM(index_length)/1048576,2) AS index_mib,
+        ROUND(SUM(data_length+index_length)/1048576,2) AS total_mib
+        FROM information_schema.tables WHERE table_schema=DATABASE()
+        AND table_type='BASE TABLE'""")
+        st.caption('InnoDB storage estimates include allocated data and index pages; exact row counts are queried separately.')
+
 def queries():
     st.header('Query Workload')
     q=st.selectbox('Research Question',['Q1 — Top Rated Movies','Q2 — Average Rating by Genre','Q3 — Genre Popularity vs. Rating','Q4 — Genre and User Engagement','Q5 — Release Period vs. Rating','Q6 — Favorite Genre by User'])
@@ -200,6 +283,7 @@ def experiments():
             st.caption(f'Client elapsed time including connection and retrieval: {elapsed:.1f} ms. No indexes are created or dropped by this app.')
 try:
     if page=='Data Overview': overview()
+    elif page=='Database': database_page()
     elif page=='Query Workload': queries()
     else: experiments()
 except mysql.connector.Error as e:
