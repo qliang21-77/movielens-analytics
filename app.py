@@ -263,7 +263,7 @@ def queries():
 def experiments():
     st.header('Performance Experiments')
     st.caption('Historical measurements from the report; single runs, not live benchmarks.')
-    a,b,c=st.tabs(['Indexing','Sorting and Join','Live Query Lab'])
+    a,b,c,d=st.tabs(['Indexing','Sorting and Join','Live Query Lab','Index-Provided Ordering'])
     with a:
         df=pd.DataFrame({'Index configuration':['movieId','movieId, rating','rating, movieId'],'Execution time (ms)':[214,112,195]})
         st.dataframe(df,hide_index=True); st.bar_chart(df,x='Index configuration',y='Execution time (ms)'); st.metric('Observed reduction', '47.66%')
@@ -287,6 +287,35 @@ def experiments():
             match=re.search(r'actual time=[\d.]+\.\.([\d.]+)',plan)
             if match: st.metric('Root iterator completion time',match.group(1)+' ms')
             st.caption(f'Client elapsed time including connection and retrieval: {elapsed:.1f} ms. No indexes are created or dropped by this app.')
+    with d:
+        st.subheader('Explicit Sorting vs. Index-Provided Ordering')
+        df=pd.DataFrame({
+            'Experiment':['Without composite index','With composite index'],
+            'Additional index':['None','(rating, movieId)'],
+            'Ratings access':['Full table scan','Covering index range scan'],
+            'Sorting operation':['Explicit Sort','No separate Sort'],
+            'Rows read from ratings':[100836,20],
+            'Rows satisfying filter':['21,762','Not fully evaluated'],
+            'Output rows':[20,20],
+            'Execution time (ms)':[62.4,2.75]
+        })
+        st.dataframe(df,hide_index=True,use_container_width=True)
+        st.bar_chart(df,x='Experiment',y='Execution time (ms)')
+        st.metric('Observed execution time reduction','95.59%')
+        st.metric('Speedup','22.69x')
+        st.markdown(
+            'The composite index on `(rating, movieId)` allows MySQL '
+            'to retrieve records in the requested descending order without '
+            'a separate sorting operation. Without the index, MySQL scans '
+            'the ratings table and explicitly sorts the qualifying records. '
+            'The optimizer trace for the first experiment also showed '
+            '`std::stable_sort` and three initial sorting chunks spilled to disk.'
+        )
+        st.caption(
+            'The indexed experiment stopped after retrieving 20 qualifying '
+            'records because of LIMIT 20, so the total number of records '
+            'satisfying the filter was not fully evaluated.'
+        )
 try:
     if page=='Data Overview': overview()
     elif page=='Database': database_page()
