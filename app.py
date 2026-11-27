@@ -24,13 +24,29 @@ except (KeyError, FileNotFoundError):
     st.stop()
 
 def run(sql, params=(), schema=None):
-    with mysql.connector.connect(host=host, port=port, user=user, password=password,
-                                 database=schema or database, connection_timeout=20,
-                                 ssl_disabled=False, ssl_verify_cert=True,
-                                 ssl_verify_identity=True) as conn:
-        with conn.cursor() as cur:
-            cur.execute(sql, params)
-            return pd.DataFrame(cur.fetchall(), columns=cur.column_names)
+    try:
+        with mysql.connector.connect(
+            host=host,
+            port=port,
+            user=user,
+            password=password,
+            database=schema or database,
+            connection_timeout=20,
+            ssl_disabled=False,
+            ssl_verify_cert=True,
+            ssl_verify_identity=True
+        ) as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                return pd.DataFrame(
+                    cur.fetchall(),
+                    columns=cur.column_names
+                )
+
+    except Exception:
+        import logging
+        logging.exception("Database query failed")
+        raise
 
 def show(sql, params=(), chart=None):
     with st.expander('View SQL'):
