@@ -10,17 +10,24 @@ st.title('MovieLens Analytics')
 st.caption('DSCI 551 | Movie Rating and Database Performance Analysis')
 with st.sidebar:
     page = st.radio('Navigation', ['Data Overview','Query Workload','Performance Experiments'])
-    host = st.text_input('MySQL Host', 'localhost')
-    user = st.text_input('MySQL User', 'root')
-    database = st.text_input('Database', 'project_551_stephanie')
-    password = st.text_input('MySQL Password', type='password')
-    ready = st.checkbox('Connect to database')
-if not ready:
-    st.info('Enter your connection details and select Connect to database.')
+    st.caption('Cloud database · MovieLens')
+
+try:
+    config = st.secrets['mysql']
+    host = config['host']
+    user = config['user']
+    password = config['password']
+    database = config['database']
+    port = int(config.get('port', 3306))
+except (KeyError, FileNotFoundError):
+    st.error('Database configuration is missing. Please contact the app administrator.')
     st.stop()
 
 def run(sql, params=(), schema=None):
-    with mysql.connector.connect(host=host,user=user,password=password,database=schema or database,connection_timeout=10) as conn:
+    with mysql.connector.connect(host=host, port=port, user=user, password=password,
+                                 database=schema or database, connection_timeout=20,
+                                 ssl_disabled=False, ssl_verify_cert=True,
+                                 ssl_verify_identity=True) as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
             return pd.DataFrame(cur.fetchall(), columns=cur.column_names)
@@ -176,7 +183,8 @@ def experiments():
         df=pd.DataFrame({'Strategy':['Full sort','Top-N','Early aggregation CTE'],'Execution time (ms)':[193,191,96.9],'Join output':[100836,100836,10],'Main sort record bytes':[1080,1080,37],'Main sort peak bytes':[85712,85712,36560],'Disk spills':[0,0,0]})
         st.dataframe(df,hide_index=True); st.bar_chart(df,x='Strategy',y='Execution time (ms)'); st.metric('Observed reduction vs Top-N','49.27%')
     with c:
-        schema=st.text_input('Experiment schema','project_551_test')
+        schema=database
+        st.caption('Live experiments use the cloud database and its current indexes. Timings are not directly comparable with historical local measurements.')
         strategy=st.radio('Query strategy',['Full sorting','Top-N','Early aggregation CTE'])
         minimum=st.number_input('Minimum rating count',1,100000,50,key='lab_min'); n=st.slider('Top N',1,100,10,key='lab_n')
         sql=CTE if strategy=='Early aggregation CTE' else TOP+(' LIMIT %s' if strategy=='Top-N' else '')
@@ -195,4 +203,4 @@ try:
     elif page=='Query Workload': queries()
     else: experiments()
 except mysql.connector.Error as e:
-    st.error(f'MySQL error: {e}')
+    st.error('Database query failed. Please try again or contact the app administrator.')
