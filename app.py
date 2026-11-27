@@ -153,6 +153,14 @@ FROM information_schema.tables WHERE table_schema=DATABASE()''')
 def database_page():
     st.header('Database')
     st.caption('Implemented schema, loading pipeline, relationships and live representative data.')
+    st.subheader('Entity Relationship Diagram')
+
+    st.image(
+        'images/551_Project EER Diagram.png',
+        caption='MovieLens relational database schema',
+        use_container_width=True
+    )
+    
     tables = ['movies', 'users', 'ratings', 'genres', 'tags', 'links', 'movie_genres']
     a,b,c,d = st.tabs(['Schema Design', 'Load Dataset', 'Representative Data', 'Database Size'])
     with a:
