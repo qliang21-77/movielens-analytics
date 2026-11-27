@@ -135,7 +135,7 @@ FROM information_schema.tables WHERE table_schema=DATABASE()''')
     st.altair_chart(chart, use_container_width=True)
 
 def database_page():
-    st.header('B. Database')
+    st.header('Database')
     st.caption('Implemented schema, loading pipeline, relationships and live representative data.')
     tables = ['movies', 'users', 'ratings', 'genres', 'tags', 'links', 'movie_genres']
     a,b,c,d = st.tabs(['Schema Design', 'Load Dataset', 'Representative Data', 'Database Size'])
