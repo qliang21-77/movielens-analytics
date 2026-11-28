@@ -642,13 +642,11 @@ def query_processing():
         st.graphviz_chart('''digraph { node [shape=box]; R [label="Root: 30"]; L [label="Internal: 20"]; H [label="Internal: 40"]; A [label="10 | 10 | 10",style=filled,fillcolor="#D5EBD9"]; B [label="20 | 20"]; C [label="30 | 30"]; D [label="40"]; R -> L [color=green,penwidth=3]; R -> H; L -> A [color=green,penwidth=3]; L -> B; H -> C; H -> D; {rank=same; A B C D} A -> B -> C -> D [style=dashed,constraint=false]; }''')
         st.caption('Illustrative B+ Tree: search for movieId = 10, scan matching entries, then stop at 20.')
         st.table(pd.DataFrame({'Matching movieId':[10,10,10], 'Retrieved rating':[4.5,5.0,3.5]}))
-        st.write('Course concepts: B+ Tree traversal, ordered leaf access, and reduced unnecessary page access.')
     with st.container():
         st.subheader("Nested Loop Join")
         st.write('In the original query, MySQL performs a nested loop join between the `movies` and `ratings` tables.\n\n- **Outer relation:** `movies` (9,742 records).\n- **Inner relation:** `ratings`, accessed through the `movieId` index.\n- **Number of index lookup iterations:** 9,742.\n- **Join output:** 100,836 records.\n\nMySQL reads each movie from the outer table and uses the `movieId` index to find matching records in the inner table.\n\nFor example, if a movie has three ratings, MySQL combines the movie information with each rating and produces three joined records.\n\nMySQL repeats this process for all 9,742 movies and produces 100,836 joined records.')
         st.dataframe(pd.DataFrame({'movieId':[10]*3,'title':['Movie A']*3,'rating':[4.5,5.0,3.5]}),hide_index=True)
         st.caption('Illustrative join output.')
-        st.write('Course concepts: outer and inner relations, index-based nested loop joins, and join cardinality.')
     with st.container():
         st.subheader("Aggregation")
         st.write('After joining the two tables, MySQL uses an internal temporary table to group the records by `movieId` and `title`.\n\nFor each movie, MySQL keeps track of the sum and count of its ratings to calculate the average rating.\n\nAccording to the execution plan, MySQL groups 100,836 joined records into 9,724 movie groups.\n\nThe `HAVING` clause then removes movies with fewer than 50 ratings, leaving 450 movie groups.')
@@ -658,16 +656,11 @@ def query_processing():
         x,y,z=st.columns(3); x.metric('SUM',f'{s.sum():.1f}'); y.metric('COUNT',n); z.metric('AVG',f'{s.mean():.2f}')
         st.caption('HAVING: this example is filtered out because it has fewer than 50 ratings.')
         st.caption('Illustrative example, not actual query results.')
-        st.write('Course concepts: group aggregation, temporary tables, and HAVING filtering.')
     with st.container():
         st.subheader("Sorting")
         st.write('After aggregation and filtering, MySQL sorts the 450 remaining movie groups using two sorting keys:\n\n- `average_rating` in descending order.\n- `rating_count` in descending order.\n\nSince the average rating and rating count are calculated during aggregation, the existing index on `movieId` cannot directly provide the required sorting order. Therefore, MySQL needs to perform a separate sorting operation.\n\nFinally, the `LIMIT 10` clause returns the top 10 movies.')
     
-        st.write('Course concepts: sort keys, sort buffers, in-memory sorting, and Top-N processing.')
-    st.header('Intermediate Result Cardinality')
-    df=pd.DataFrame({'Stage':['Join','Aggregation','HAVING','LIMIT'],'Records':[100836,9724,450,10]})
-    st.altair_chart(alt.Chart(df).mark_bar().encode(x=alt.X('Stage:N', sort=['Join','Aggregation','HAVING','LIMIT']), y=alt.Y('Records:Q', scale=alt.Scale(type='log'), title='Records / groups (log scale)'), tooltip=['Stage','Records']), use_container_width=True)
-    st.dataframe(df,hide_index=True)
+
 
 
 try:
