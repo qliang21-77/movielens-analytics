@@ -49,9 +49,63 @@ def run(sql, params=(), schema=None):
         logging.exception("Database query failed")
         raise
 
+
+def format_sql(sql):
+    """Format SQL for display only; never change the executed statement."""
+    # Keep quoted strings and identifiers intact, including regex patterns.
+    token_pattern = r"'(?:''|\\.|[^'\\])*'|\"(?:\"\"|\\.|[^\"\\])*\"|`(?:``|[^`])*`|\b(?:LEFT\s+JOIN|RIGHT\s+JOIN|INNER\s+JOIN|OUTER\s+JOIN|CROSS\s+JOIN|GROUP\s+BY|ORDER\s+BY|UNION\s+ALL|SELECT|FROM|JOIN|ON|WHERE|HAVING|LIMIT|UNION|WHEN|ELSE|END)\b|[(),]|\s+|[^\s(),]+?"
+    tokens = re.findall(token_pattern, sql, flags=re.IGNORECASE)
+    if not re.search(r'\bSELECT\b', sql, re.IGNORECASE):
+        return sql
+    out = ''
+    depth = 0
+    clauses = {}
+    pending_space = False
+    def newline(indent):
+        return '\n' + '    ' * max(0, indent)
+    for token in tokens:
+        if token.isspace():
+            pending_space = True
+            continue
+        key = ' '.join(token.upper().split())
+        if key in ('SELECT','FROM','JOIN','LEFT JOIN','RIGHT JOIN','INNER JOIN','OUTER JOIN','CROSS JOIN','ON','WHERE','GROUP BY','HAVING','ORDER BY','LIMIT','UNION','UNION ALL','WHEN','ELSE','END'):
+            if key in ('SELECT','FROM','GROUP BY','ORDER BY','WHERE','HAVING','LIMIT','ON') or key.endswith('JOIN'):
+                clauses[depth] = key
+            indent = depth + (1 if key in ('ON','WHEN','ELSE','END') else 0)
+            out = out.rstrip() + (newline(indent) if out.strip() else '') + key
+            if key in ('SELECT','GROUP BY','ORDER BY'):
+                out += newline(depth+1)
+            pending_space = False
+        elif token == '(':
+            if pending_space and out and not out[-1].isspace(): out += ' '
+            out += token
+            depth += 1
+            pending_space = False
+        elif token == ')':
+            clauses.pop(depth, None)
+            depth = max(0, depth-1)
+            out = out.rstrip() + token
+            pending_space = False
+        elif token == ',':
+            out = out.rstrip() + ','
+            if clauses.get(depth) in ('SELECT','GROUP BY','ORDER BY'):
+                out += newline(depth+1)
+                pending_space = False
+            else:
+                pending_space = True
+        else:
+            if pending_space and out and not out[-1].isspace(): out += ' '
+            out += token
+            pending_space = False
+    return out.strip()
+
+
+def show_sql(sql):
+    st.code(format_sql(sql), language='sql')
+
 def show(sql, params=(), chart=None):
     with st.expander('View SQL'):
-        st.code(sql, language='sql')
+        show_sql(sql)
         st.write('Parameters:', params)
     df=run(sql,params)
     for c in df.columns:
@@ -184,7 +238,7 @@ def database_page():
     'between movies and genres.')
         table = st.selectbox('Inspect table structure', tables)
         ddl = run(f'SHOW CREATE TABLE `{table}`')
-        st.code(str(ddl.iloc[0,1]), language='sql')
+        show_sql(str(ddl.iloc[0,1]))
         st.subheader('Live Key Constraints')
         show("""SELECT table_name, constraint_name, column_name,
         referenced_table_name, referenced_column_name
@@ -194,22 +248,22 @@ def database_page():
     with b:
         st.subheader('Create Database and Load Dataset')
         st.caption('Reproduction examples for local MySQL. These statements are displayed only, never executed by this app. The deployed schema is configured separately.')
-        st.code('CREATE DATABASE IF NOT EXISTS project_551;\nUSE project_551;', language='sql')
+        show_sql('CREATE DATABASE IF NOT EXISTS project_551;\nUSE project_551;')
         st.markdown('**1. Import the four original MovieLens CSV files**')
         fields = {'movies':'movieId, title, genres', 'ratings':'userId, movieId, rating, timestamp', 'tags':'userId, movieId, tag, timestamp', 'links':'movieId, imdbId, tmdbId'}
         st.caption('Create the tables first using the schema shown in Schema Design. For a fresh load, stage ratings and tags or populate users before importing dependent rows so foreign keys remain valid.')
         for name, columns in fields.items():
             with st.expander(name + '.csv'):
-                st.code(f"""LOAD DATA LOCAL INFILE 'PATH_TO_ML_LATEST_SMALL/{name}.csv'
+                show_sql(f"""LOAD DATA LOCAL INFILE 'PATH_TO_ML_LATEST_SMALL/{name}.csv'
 INTO TABLE {name}
 CHARACTER SET utf8mb4
 FIELDS TERMINATED BY ',' OPTIONALLY ENCLOSED BY '"' ESCAPED BY '"'
 LINES TERMINATED BY '\\n'
 IGNORE 1 LINES
-({columns});""", language='sql')
+({columns});""")
         st.markdown('**2. Derive unique users from ratings and tags**')
         st.caption('For a fresh import with foreign keys enabled, use staging tables as the source of this UNION before loading ratings and tags. The following illustrates the transformation in the project documentation.')
-        st.code('INSERT INTO users (userId)\nSELECT userId FROM ratings\nUNION\nSELECT userId FROM tags;', language='sql')
+        show_sql('INSERT INTO users (userId)\nSELECT userId FROM ratings\nUNION\nSELECT userId FROM tags;')
         st.markdown('**3. Normalize movie genres**')
         st.write('Split pipe-separated genre names, remove duplicates, exclude (no genres listed), and populate the movie-to-genre bridge table.')
         split = """SELECT m.movieId, TRIM(REPLACE(SUBSTRING_INDEX(
@@ -219,8 +273,8 @@ FROM movies m JOIN (
     UNION SELECT 5 UNION SELECT 6 UNION SELECT 7 UNION SELECT 8
     UNION SELECT 9 UNION SELECT 10
 ) n ON CHAR_LENGTH(m.genres)-CHAR_LENGTH(REPLACE(m.genres,'|','')) >= n.n-1"""
-        st.code('INSERT INTO genres (genreName)\nSELECT DISTINCT genre FROM (\n'+split+"\n) x WHERE genre <> '(no genres listed)';", language='sql')
-        st.code('INSERT INTO movie_genres (movieId, genreId)\nSELECT DISTINCT x.movieId, g.genreId FROM (\n'+split+'\n) x JOIN genres g ON x.genre=g.genreName;', language='sql')
+        show_sql('INSERT INTO genres (genreName)\nSELECT DISTINCT genre FROM (\n'+split+"\n) x WHERE genre <> '(no genres listed)';")
+        show_sql('INSERT INTO movie_genres (movieId, genreId)\nSELECT DISTINCT x.movieId, g.genreId FROM (\n'+split+'\n) x JOIN genres g ON x.genre=g.genreName;')
         st.markdown('**4. Cloud deployment**')
         st.write('Export local MySQL structure and data, import the SQL dump into cloud MySQL, and connect Streamlit using server-side secrets.')
     with c:
@@ -228,7 +282,7 @@ FROM movies m JOIN (
         sample = st.selectbox('Select a table', tables)
         limit = st.slider('Sample rows', 5, 50, 10, key='db_sample_limit')
         sql = f'SELECT * FROM `{sample}` LIMIT %s'
-        st.code(sql, language='sql')
+        show_sql(sql)
         st.dataframe(run(sql,(limit,)), hide_index=True, use_container_width=True)
         st.caption('Representative sample, not a random or ordered sample.')
     with d:
@@ -348,7 +402,7 @@ def experiments():
             st.subheader(f'Experiment {i}: {label}')
             st.caption(f'Index: {index} | Historical execution time: {historical} ms')
             sql = TOP.replace('JOIN ratings r ON', f'JOIN ratings r FORCE INDEX (`{index}`) ON').replace('%s', '50') + ' LIMIT 10'
-            st.code(sql, language='sql')
+            show_sql(sql)
             clicked = st.button(f'Run Experiment {i}', key=f'e1_run_{i}')
             if clicked or run_all:
                 st.session_state['e1_results'].pop(index, None)
@@ -425,7 +479,7 @@ def experiments():
         )
         params = (minimum,) if strategy == 'Full sorting' else (minimum, n)
 
-        st.code('EXPLAIN ANALYZE\n' + sql, language='sql')
+        show_sql('EXPLAIN ANALYZE\n' + sql)
 
         if st.button('Run E.2 Live Experiment', key='run_e2'):
             st.subheader('Current ratings indexes')
@@ -565,7 +619,7 @@ ORDER BY r.rating DESC, r.movieId DESC
 LIMIT 20'''
 
         st.markdown('**Experiment 1: Explicit Sorting**')
-        st.code('EXPLAIN ANALYZE\n' + e3_sort_sql, language='sql')
+        show_sql('EXPLAIN ANALYZE\n' + e3_sort_sql)
 
         if st.button('Run E.3 Explicit Sorting', key='run_e3_sort'):
             plan = run(
@@ -587,7 +641,7 @@ LIMIT 20'''
 
         st.divider()
         st.markdown('**Experiment 2: Index-Provided Ordering**')
-        st.code('EXPLAIN ANALYZE\n' + e3_index_sql, language='sql')
+        show_sql('EXPLAIN ANALYZE\n' + e3_index_sql)
 
         if 'idx_ratings_rating_movie' not in index_names:
             st.warning(
@@ -625,7 +679,7 @@ def query_processing():
     a.metric('Movies', '9,742'); b.metric('Joined records','100,836'); c.metric('Final results','10')
     st.header('Query 1 Objective')
     st.write('The purpose of query 1 is to identify the top 10 highest-rated movies that have received at least 50 ratings. The minimum rating count requirement reduces the influence of movies with very few ratings and provides a more meaningful ranking. This query demonstrates several important query processing operations discussed in class, including index-based access, nested loop joins, aggregation, and sorting.')
-    st.code('''SELECT m.movieId, m.title,
+    show_sql('''SELECT m.movieId, m.title,
         COUNT(r.rating) AS rating_count,
         ROUND(AVG(r.rating), 2) AS average_rating
     FROM movies m
@@ -633,7 +687,7 @@ def query_processing():
     GROUP BY m.movieId, m.title
     HAVING COUNT(r.rating) >= 50
     ORDER BY average_rating DESC, rating_count DESC
-    LIMIT 10;''', language='sql')
+    LIMIT 10;''')
     st.subheader('Query Explanation')
     st.write('It joins the `movies` and `ratings` tables using `movieId` and calculates the rating count and average rating for each movie.\n\nThe `HAVING` clause removes movies with fewer than 50 ratings. The remaining movies are sorted by average rating in descending order. If two movies have the same average rating, the movie with more ratings is ranked higher. Finally, the query returns the top 10 movies.\n\nThis query involves four important database operations discussed in class: index-based access, joining, aggregation, and sorting.')
     st.header('Query Execution Flow')
