@@ -334,50 +334,54 @@ def experiments():
 
     with b:
         st.subheader('E.1 Live Query: Indexing')
-        st.write(
-            'This query examines the current execution plan for the Top 10 '
-            'highest-rated movies. The live plan uses the indexes currently '
-            'configured in the cloud database. It does not recreate the '
-            'three historical index configurations.'
-        )
-
-        e1_sql = TOP + ' LIMIT 10'
-        e1_params = (50,)
-
-        st.markdown('**SQL Query**')
-        st.code(e1_sql, language='sql')
-
-        if st.button('Run E.1 Live Query', key='run_e1'):
-            st.subheader('Current ratings indexes')
-            indexes = run('SHOW INDEX FROM ratings', schema=database)
-            st.dataframe(indexes, hide_index=True, use_container_width=True)
-
-            st.subheader('Execution Plan')
-            plan = run(
-                'EXPLAIN ANALYZE ' + e1_sql,
-                e1_params,
-                schema=database
-            )
-            plan_text = '\n'.join(str(x) for x in plan.iloc[:, 0])
-            st.code(plan_text, language='text')
-
-            match = re.search(
-                r'actual time=[\d.]+\.\.([\d.]+)',
-                plan_text
-            )
-            if match:
-                st.metric(
-                    'Root iterator completion time',
-                    match.group(1) + ' ms'
-                )
-
-            st.subheader('Query Results')
-            results = run(e1_sql, e1_params, schema=database)
-            st.dataframe(
-                results,
-                hide_index=True,
-                use_container_width=True
-            )
+        st.write('Compare the same query using three existing indexes. FORCE INDEX restricts index selection for ratings; MySQL still chooses the execution plan. No indexes are created or dropped.')
+        st.caption('Live forced-index tests are not identical to the historical experiments. Timings can vary with caching and server load.')
+        configs = [('Single-column index', 'movieId', 214),
+                   ('Composite index', 'idx_ratings_movie_rating', 112),
+                   ('Reversed composite index', 'idx_ratings_rating_movie', 195)]
+        run_all = st.button('Run All Experiments', key='e1_all', type='primary')
+        if 'e1_results' not in st.session_state:
+            st.session_state['e1_results'] = {}
+        if run_all:
+            st.session_state['e1_results'] = {}
+        for i, (label, index, historical) in enumerate(configs, 1):
+            st.subheader(f'Experiment {i}: {label}')
+            st.caption(f'Index: {index} | Historical execution time: {historical} ms')
+            sql = TOP.replace('JOIN ratings r ON', f'JOIN ratings r FORCE INDEX (`{index}`) ON').replace('%s', '50') + ' LIMIT 10'
+            st.code(sql, language='sql')
+            clicked = st.button(f'Run Experiment {i}', key=f'e1_run_{i}')
+            if clicked or run_all:
+                st.session_state['e1_results'].pop(index, None)
+                try:
+                    with st.spinner('Running experiment...'):
+                        plan = run('EXPLAIN ANALYZE ' + sql, schema=database)
+                        plan_text = '\n'.join(str(x) for x in plan.iloc[:, 0])
+                        match = re.search(r'actual time=[\d.]+\.\.([\d.]+)', plan_text)
+                        results = run(sql, schema=database)
+                        st.session_state['e1_results'][index] = (plan_text, float(match.group(1)) if match else None, results)
+                except mysql.connector.Error:
+                    st.error('Experiment failed. Check the database connection and index availability.')
+            saved = st.session_state['e1_results'].get(index)
+            if saved is not None:
+                plan_text, elapsed, results = saved
+                if elapsed is not None:
+                    st.metric('Root iterator completion time', f'{elapsed:g} ms')
+                st.markdown('**Execution Plan**')
+                st.code(plan_text, language='text')
+                st.markdown('**Query Results**')
+                st.dataframe(results, hide_index=True, use_container_width=True)
+            st.divider()
+        st.subheader('Live Execution Time Comparison')
+        rows = [{'Experiment': f'E{i}: {label}', 'Execution time (ms)': st.session_state['e1_results'][index][1]}
+                for i, (label, index, _) in enumerate(configs, 1)
+                if index in st.session_state['e1_results'] and st.session_state['e1_results'][index][1] is not None]
+        if rows:
+            df = pd.DataFrame(rows)
+            st.dataframe(df, hide_index=True)
+            st.bar_chart(df, x='Experiment', y='Execution time (ms)')
+        else:
+            st.caption('Run an experiment to display live timings.')
+        st.caption('Each timing is a single EXPLAIN ANALYZE measurement, not an average or client-side elapsed time.')
 
     with c:
         st.subheader('E.2 Sorting and Join Experiment')
